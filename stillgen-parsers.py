@@ -1,0 +1,248 @@
+# parsers.py - File parsing utilities
+import os
+import csv
+import logging
+from typing import Dict, List, Optional
+from functools import lru_cache
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+def parse_ale_file(ale_path: str) -> Dict[str, Dict]:
+    """Parse ALE file and return a dictionary of clip data, keyed by Tape column."""
+    clip_data = {}
+    current_section = None
+    headers = []
+    
+    logger.debug(f"Reading ALE file: {ale_path}")
+    
+    try:
+        with open(ale_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.rstrip('\n')
+                if not line:
+                    continue
+                    
+                if line == 'Heading':
+                    current_section = 'heading'
+                    continue
+                elif line == 'Column':
+                    current_section = 'column'
+                    continue
+                elif line == 'Data':
+                    current_section = 'data'
+                    continue
+                    
+                if current_section == 'column':
+                    headers = [h.strip() for h in line.split('\t')]
+                    logger.debug(f"Found {len(headers)} columns in ALE")
+                elif current_section == 'data':
+                    values = [v.strip() for v in line.split('\t')]
+                    if len(values) < len(headers):
+                        values.extend([''] * (len(headers) - len(values)))
+                    
+                    if len(values) == len(headers):
+                        clip_dict = dict(zip(headers, values))
+                        
+                        # Use Tape as primary key, fallback to Name
+                        tape_value = clip_dict.get('Tape', '').strip()
+                        name_value = clip_dict.get('Name', '').strip()
+                        
+                        # Store by both Tape and Name for flexibility
+                        if tape_value:
+                            clip_data[tape_value] = clip_dict
+                        if name_value and name_value != tape_value:
+                            clip_data[name_value] = clip_dict
+                            
+    except Exception as e:
+        logger.error(f"Error parsing ALE file {ale_path}: {str(e)}")
+        
+    return clip_data
+
+
+def parse_ale_files(ale_folder: str) -> Dict[str, Dict]:
+    """Parse all ALE files in a folder and return combined data."""
+    combined_data = {}
+    
+    if not os.path.exists(ale_folder):
+        logger.error(f"ALE folder not found: {ale_folder}")
+        return combined_data
+    
+    ale_files = [f for f in os.listdir(ale_folder) if f.lower().endswith('.ale')]
+    
+    if not ale_files:
+        logger.warning(f"No ALE files found in {ale_folder}")
+        return combined_data
+    
+    for ale_file in ale_files:
+        ale_path = os.path.join(ale_folder, ale_file)
+        logger.info(f"Processing ALE file: {ale_file}")
+        data = parse_ale_file(ale_path)
+        combined_data.update(data)
+        logger.debug(f"Loaded {len(data)} clips from {ale_file}")
+    
+    logger.info(f"Total clips loaded from ALE files: {len(combined_data)}")
+    return combined_data
+
+
+def parse_silverstack_csv(csv_path: str) -> Dict[str, Dict]:
+    """Parse Silverstack CSV file and return a dictionary of clip data."""
+    clip_data = {}
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                name = row.get('Name', '').strip()
+                if name:
+                    clip_data[name] = {
+                        'Look Name': row.get('Look Name', 'N/A'),
+                        'Director': row.get('Director', 'N/A'),
+                        'Cinematographer': row.get('Cinematographer', 'N/A'),
+                        'Shoot Date': row.get('Shoot Date', 'N/A'),
+                        'Shooting Day': row.get('Shooting Day', 'N/A'),
+                        'Crew Unit': row.get('Crew Unit', 'N/A'),
+                        'Shutter Angle': row.get('Shutter Angle', 'N/A')
+                    }
+    except Exception as e:
+        logger.error(f"Error parsing Silverstack CSV {csv_path}: {str(e)}")
+        
+    return clip_data
+
+
+def parse_silverstack_files(csv_folder: str) -> Dict[str, Dict]:
+    """Parse all Silverstack CSV files in a folder."""
+    combined_data = {}
+    
+    if not os.path.exists(csv_folder):
+        logger.error(f"Silverstack CSV folder not found: {csv_folder}")
+        return combined_data
+    
+    csv_files = [f for f in os.listdir(csv_folder) if f.lower().endswith('.csv')]
+    
+    if not csv_files:
+        logger.warning(f"No CSV files found in {csv_folder}")
+        return combined_data
+    
+    for csv_file in csv_files:
+        csv_path = os.path.join(csv_folder, csv_file)
+        logger.info(f"Processing Silverstack CSV: {csv_file}")
+        data = parse_silverstack_csv(csv_path)
+        combined_data.update(data)
+        logger.debug(f"Loaded {len(data)} clips from {csv_file}")
+    
+    logger.info(f"Total clips loaded from Silverstack files: {len(combined_data)}")
+    return combined_data
+
+
+def parse_frame_csv(csv_path: str) -> Optional[Dict[str, Dict]]:
+    """Parse per-frame CSV data and return a dictionary of timecode-indexed data."""
+    frame_data = {}
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
+            reader = csv.DictReader(f)
+            
+            # Normalize header names by stripping whitespace
+            if reader.fieldnames:
+                reader.fieldnames = [name.strip() for name in reader.fieldnames]
+            
+            for row in reader:
+                tc = row.get('Timecode', '').strip()
+                if tc:
+                    # Convert timecode to key format (HH_MM_SS_FF)
+                    tc_parts = tc.split(':')
+                    if len(tc_parts) == 4:
+                        tc_key = f"{tc_parts[0]}_{tc_parts[1]}_{tc_parts[2]}_{tc_parts[3]}"
+                        frame_data[tc_key] = {k.strip(): v.strip() for k, v in row.items()}
+        
+        return frame_data
+    except FileNotFoundError:
+        logger.debug(f"CSV file not found: {csv_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Error reading CSV file {csv_path}: {str(e)}")
+        return None
+
+
+class LazyCSVLoader:
+    """Lazy loader for per-frame CSV files with caching."""
+    
+    def __init__(self, csv_folder: str, cache_size: int = 32):
+        self.csv_folder = csv_folder
+        self._cache = {}
+        self._lru_cache = lru_cache(maxsize=cache_size)(self._load_csv)
+    
+    def _load_csv(self, clip_name: str) -> Optional[Dict[str, Dict]]:
+        """Load CSV data for a specific clip."""
+        csv_path = os.path.join(self.csv_folder, f"{clip_name}.csv")
+        return parse_frame_csv(csv_path)
+    
+    def get_data(self, clip_name: str) -> Optional[Dict[str, Dict]]:
+        """Get CSV data for a clip, loading lazily if needed."""
+        return self._lru_cache(clip_name)
+    
+    def get_frame_data(self, clip_name: str, tc_key: str) -> Optional[Dict]:
+        """Get data for a specific frame."""
+        csv_data = self.get_data(clip_name)
+        if csv_data and tc_key in csv_data:
+            return csv_data[tc_key]
+        return None
+    
+    def clear_cache(self):
+        """Clear the cache."""
+        self._lru_cache.cache_clear()
+
+
+def get_value_fuzzy(data: Optional[Dict], *keys: List[str]) -> str:
+    """Get value from dictionary with fuzzy key matching."""
+    if not data:
+        return 'N/A'
+    
+    # Try exact matches first
+    for key in keys:
+        if key in data:
+            value = data[key]
+            return value if value else 'N/A'
+    
+    # Try case-insensitive matches
+    data_lower = {k.lower(): v for k, v in data.items()}
+    for key in keys:
+        if key.lower() in data_lower:
+            value = data_lower[key.lower()]
+            return value if value else 'N/A'
+    
+    # Try partial matches
+    for key in keys:
+        for data_key in data:
+            if key.lower() in data_key.lower():
+                value = data[data_key]
+                return value if value else 'N/A'
+    
+    return 'N/A'
+
+
+def validate_clip_data(clip_data: Dict[str, Dict]) -> Dict[str, List[str]]:
+    """Validate clip data and return any issues found."""
+    issues = {}
+    
+    required_fields = ['ASC_SOP', 'ASC_SAT', 'Name', 'Tape']
+    
+    for clip_name, data in clip_data.items():
+        clip_issues = []
+        
+        for field in required_fields:
+            if field not in data or not data[field]:
+                clip_issues.append(f"Missing required field: {field}")
+        
+        # Validate ASC_SOP format
+        if 'ASC_SOP' in data and data['ASC_SOP']:
+            asc_sop = data['ASC_SOP']
+            if not re.match(r'\([^)]+\)\([^)]+\)\([^)]+\)', asc_sop):
+                clip_issues.append(f"Invalid ASC_SOP format: {asc_sop}")
+        
+        if clip_issues:
+            issues[clip_name] = clip_issues
+    
+    return issues
