@@ -1,0 +1,14 @@
+# StillGen Python Requirements
+# Core image processing
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# Progress tracking
+tqdm>=4.65.0
+
+# Configuration file support
+PyYAML>=6.0
+
+# Optional but recommended
+matplotlib>=3.7.0  # For histogram analysis
+scikit-image>=0.21.0  # Advanced image processing

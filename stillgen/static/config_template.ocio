@@ -1,0 +1,104 @@
+ocio_profile_version: 1
+
+search_path: luts
+strictparsing: true
+luma: [0.2126, 0.7152, 0.0722]
+
+roles:
+  color_picking: sRGB
+  data: raw
+  default: raw
+  matte_paint: sRGB
+  reference: linear
+  scene_linear: linear
+  texture_paint: sRGB
+
+displays:
+  default:
+    - !<View> {name: None, colorspace: raw}
+    - !<View> {name: sRGB, colorspace: sRGB}
+
+active_displays: [default]
+active_views: [sRGB]
+
+colorspaces:
+  - !<ColorSpace>
+    name: linear
+    family: ""
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Scene-linear, high dynamic range. Used for rendering and compositing.
+    isdata: false
+    allocation: lg2
+    allocationvars: [-15, 6]
+
+  - !<ColorSpace>
+    name: sRGB
+    family: ""
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Standard RGB Display Space
+    isdata: false
+    allocation: uniform
+    allocationvars: [-0.125, 1.125]
+    to_reference: !<FileTransform> {src: srgb.spi1d, interpolation: linear}
+
+  - !<ColorSpace>
+    name: REDLog3
+    family: ""
+    equalitygroup: ""
+    bitdepth: 32f
+    description:
+    isdata: false
+    allocation: uniform
+    allocationvars: [-0.125, 1.125]
+    to_reference: !<GroupTransform>
+      children:
+        - !<FileTransform> {src: REDLog3G10WG_to_gm5_ARRILogC4WG4.cube, interpolation: best}
+
+  - !<ColorSpace>
+    name: Output_w_Look
+    family: ""
+    equalitygroup: ""
+    bitdepth: 32f
+    description:
+    isdata: false
+    allocation: uniform
+    allocationvars: [-0.125, 1.125]
+    from_reference: !<GroupTransform>
+      children:
+        - !<FileTransform> {src: cd.cdl}
+        - !<FileTransform> {src: LogC4AWG4_mktG3_Rec709.cube, interpolation: best}
+
+  - !<ColorSpace>
+    name: Input
+    family: ""
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Input color space for unprocessed data.
+    isdata: true
+    allocation: uniform
+
+  - !<ColorSpace>
+    name: raw
+    family: ""
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Raw Data. Used for normals, points, etc.
+    isdata: true
+    allocation: uniform
+
+  - !<ColorSpace>
+    name: Arri LogC4
+    family: ""
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Arri LogC4 color space for decoding.
+    isdata: false
+    allocation: uniform
+    allocationvars: [-0.125, 1.125]

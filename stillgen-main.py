@@ -1,4 +1,8 @@
-# stillgen.py - Main entry point
+#!/usr/bin/env python3
+"""
+StillGen - Film Still Processing Tool
+Main entry point
+"""
 import sys
 import os
 import argparse
@@ -8,11 +12,14 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import multiprocessing
 
-from dependencies import check_dependencies
-from parsers import parse_ale_files, parse_silverstack_files, LazyCSVLoader
-from image_processor import StillProcessor
-from config import Config, ProcessingProfile
-from utils import find_tiff_files, process_in_batches
+# Add the stillgen package to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from stillgen.dependencies import check_dependencies
+from stillgen.parsers import parse_ale_files, parse_silverstack_files, LazyCSVLoader
+from stillgen.image_processor import StillProcessor
+from stillgen.config import Config, ProcessingProfile
+from stillgen.utils import find_tiff_files, process_in_batches
 
 # Set up logging
 def setup_logging(verbose=False):
@@ -32,14 +39,17 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='StillGen - Film Still Processing Tool')
     
-    # Required arguments
-    parser.add_argument('input_folder', help='Input folder containing TIFF files')
-    parser.add_argument('output_folder', help='Output folder for processed images')
-    parser.add_argument('lut_dir', help='Directory containing LUT files')
-    parser.add_argument('frame_csv_folder', help='Folder containing per-frame CSV files')
-    parser.add_argument('lab_ale_folder', help='Folder containing lab ALE files')
-    parser.add_argument('config_template', help='OCIO config template file')
-    parser.add_argument('silverstack_csv_folder', help='Folder containing Silverstack CSV files')
+    # Required arguments with new folder names
+    parser.add_argument('input_folder', nargs='?', default='01_INPUT_STILLS',
+                        help='Input folder containing TIFF files (default: 01_INPUT_STILLS)')
+    parser.add_argument('output_folder', nargs='?', default='05_OUTPUT_STILLS',
+                        help='Output folder for processed images (default: 05_OUTPUT_STILLS)')
+    parser.add_argument('frame_csv_folder', nargs='?', default='03_DIT_FbF',
+                        help='Folder containing per-frame CSV files (default: 03_DIT_FbF)')
+    parser.add_argument('lab_ale_folder', nargs='?', default='04_LAB_ALE',
+                        help='Folder containing lab ALE files (default: 04_LAB_ALE)')
+    parser.add_argument('silverstack_csv_folder', nargs='?', default='02_DIT_CSV',
+                        help='Folder containing Silverstack CSV files (default: 02_DIT_CSV)')
     
     # Optional arguments
     parser.add_argument('--profile', choices=['preview', 'final'], default='final',
@@ -57,6 +67,21 @@ def parse_arguments():
     parser.add_argument('--config-file', help='Optional configuration file (YAML/JSON)')
     
     return parser.parse_args()
+
+
+def get_static_paths():
+    """Get paths to static resources in the stillgen package."""
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    static_dir = os.path.join(script_dir, 'stillgen', 'static')
+    
+    return {
+        'config_template': os.path.join(static_dir, 'config_template.ocio'),
+        'lut_dir': os.path.join(static_dir, 'lut_dir'),
+        'logo_image': os.path.join(static_dir, 'logo_image.png'),
+        'tool_image': os.path.join(static_dir, 'tool_image.png'),
+        'font_path': os.path.join(static_dir, 'fonts', 'monarcha-regular.ttf')
+    }
 
 
 def process_batch(batch_args):
@@ -83,31 +108,56 @@ def main():
     
     logger.info("=== StillGen Processing Started ===")
     
+    # Get static resource paths
+    static_paths = get_static_paths()
+    
+    # Check that static resources exist
+    for resource_name, resource_path in static_paths.items():
+        if not os.path.exists(resource_path):
+            logger.error(f"Required resource not found: {resource_name} at {resource_path}")
+            logger.error("Please ensure the stillgen package is properly installed with all static files.")
+            sys.exit(1)
+    
     # Check dependencies
     if not args.dry_run:
         logger.info("Checking dependencies...")
-        check_dependencies()
+        if not check_dependencies():
+            logger.error("Dependency check failed. Please install missing dependencies.")
+            sys.exit(1)
     
-    # Create configuration
+    # Create configuration with static paths
     config = Config(
         input_folder=args.input_folder,
         output_folder=args.output_folder,
-        lut_dir=args.lut_dir,
+        lut_dir=static_paths['lut_dir'],
         frame_csv_folder=args.frame_csv_folder,
         lab_ale_folder=args.lab_ale_folder,
-        config_template_path=args.config_template,
+        config_template_path=static_paths['config_template'],
         silverstack_csv_folder=args.silverstack_csv_folder,
         profile=ProcessingProfile(args.profile),
-        resume=args.resume
+        resume=args.resume,
+        # Override with static paths
+        logo_image=static_paths['logo_image'],
+        tool_image=static_paths['tool_image'],
+        font_path=static_paths['font_path']
     )
     
     # Load configuration file if provided
     if args.config_file:
         config.load_from_file(args.config_file)
+        # Ensure static paths are not overridden
+        config.lut_dir = static_paths['lut_dir']
+        config.config_template_path = static_paths['config_template']
+        config.logo_image = static_paths['logo_image']
+        config.tool_image = static_paths['tool_image']
+        config.font_path = static_paths['font_path']
     
     # Load data
     logger.info("Loading ALE files...")
     ale_data = parse_ale_files(config.lab_ale_folder)
+    if not ale_data:
+        logger.error("No ALE data loaded. Check your ALE files.")
+        sys.exit(1)
     logger.info(f"Loaded {len(ale_data)} clips from ALE files")
     
     logger.info("Loading Silverstack CSV files...")
@@ -121,10 +171,15 @@ def main():
     logger.info("Scanning for TIFF files...")
     tiff_files = find_tiff_files(config.input_folder)
     
+    if not tiff_files:
+        logger.error(f"No TIFF files found in {config.input_folder}")
+        sys.exit(1)
+    
     # Filter out already processed files if resuming
     if config.resume:
+        original_count = len(tiff_files)
         tiff_files = [f for f in tiff_files if not config.is_processed(f)]
-        logger.info(f"Resuming: {len(tiff_files)} files remaining")
+        logger.info(f"Resuming: {len(tiff_files)} of {original_count} files remaining")
     else:
         logger.info(f"Found {len(tiff_files)} TIFF files to process")
     
@@ -133,7 +188,7 @@ def main():
         for f in tiff_files[:10]:
             logger.info(f"  {f}")
         if len(tiff_files) > 10:
-            logger.info(f"  ... and {len(tiff_files) more files")
+            logger.info(f"  ... and {len(tiff_files) - 10} more files")
         return
     
     # Process files
@@ -174,6 +229,7 @@ def main():
                         pbar.update(1)
                 except Exception as e:
                     logger.error(f"Batch {batch_idx} failed: {str(e)}")
+                    # Update progress bar for failed batch
                     pbar.update(len(batches[batch_idx]))
     
     # Report results
