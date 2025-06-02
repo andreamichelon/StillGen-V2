@@ -1,29 +1,37 @@
 #!/bin/bash
 # StillGen Runner Script for Unix/Mac
 
-# Colors for output
+# Colors for output (using printf for better compatibility)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== StillGen Film Still Processor ===${NC}"
+printf "${GREEN}=== StillGen Film Still Processor ===${NC}\n"
 
 # Check if virtual environment exists
 if [ -d "venv" ]; then
-    echo -e "${GREEN}✓ Virtual environment found${NC}"
+    printf "${GREEN}✓ Virtual environment found${NC}\n"
     source venv/bin/activate
+    
+    # Check if required packages are installed
+    python -c "import tqdm" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        printf "${YELLOW}Installing required packages...${NC}\n"
+        pip install Pillow numpy tqdm PyYAML
+    fi
 else
-    echo -e "${YELLOW}⚠ Virtual environment not found${NC}"
+    printf "${YELLOW}⚠ Virtual environment not found${NC}\n"
     echo "Creating virtual environment..."
     python3 -m venv venv
     source venv/bin/activate
-    pip install -r requirements.txt
+    echo "Installing required packages..."
+    pip install Pillow numpy tqdm PyYAML
 fi
 
 # Check if stillgen package exists
 if [ ! -d "stillgen" ]; then
-    echo -e "${RED}✗ stillgen package directory not found!${NC}"
+    printf "${RED}✗ stillgen package directory not found!${NC}\n"
     echo "Run setup_folders.py first to organize the folder structure"
     exit 1
 fi
@@ -38,7 +46,7 @@ SILVERSTACK_CSV_FOLDER="02_DIT_CSV"
 # Check if folders exist
 for folder in "$INPUT_FOLDER" "$OUTPUT_FOLDER" "$FRAME_CSV_FOLDER" "$LAB_ALE_FOLDER" "$SILVERSTACK_CSV_FOLDER"; do
     if [ ! -d "$folder" ]; then
-        echo -e "${YELLOW}Creating $folder/${NC}"
+        printf "${YELLOW}Creating $folder/${NC}\n"
         mkdir -p "$folder"
     fi
 done
@@ -84,7 +92,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo -e "${RED}Unknown option: $1${NC}"
+            printf "${RED}Unknown option: $1${NC}\n"
             exit 1
             ;;
     esac
@@ -103,23 +111,23 @@ else
     ALE_COUNT=0
 fi
 
-echo -e "\nFile counts:"
-echo -e "  TIFF files: ${GREEN}$TIFF_COUNT${NC} in $INPUT_FOLDER"
-echo -e "  ALE files: ${GREEN}$ALE_COUNT${NC} in $LAB_ALE_FOLDER"
+printf "\nFile counts:\n"
+printf "  TIFF files: ${GREEN}$TIFF_COUNT${NC} in $INPUT_FOLDER\n"
+printf "  ALE files: ${GREEN}$ALE_COUNT${NC} in $LAB_ALE_FOLDER\n"
 
 if [ "$TIFF_COUNT" -eq "0" ]; then
-    echo -e "${YELLOW}⚠ No TIFF files found in $INPUT_FOLDER${NC}"
-    echo -e "  Looking for: *.tiff, *.tif, *.TIFF, *.TIF"
+    printf "${YELLOW}⚠ No TIFF files found in $INPUT_FOLDER${NC}\n"
+    echo "  Looking for: *.tiff, *.tif, *.TIFF, *.TIF"
 fi
 
 if [ "$ALE_COUNT" -eq "0" ]; then
-    echo -e "${YELLOW}⚠ No ALE files found in $LAB_ALE_FOLDER${NC}"
-    echo -e "  Looking for: *.ale, *.ALE"
+    printf "${YELLOW}⚠ No ALE files found in $LAB_ALE_FOLDER${NC}\n"
+    echo "  Looking for: *.ale, *.ALE"
     # List what's actually in the folder for debugging
     if [ -d "$LAB_ALE_FOLDER" ]; then
         FILE_COUNT=$(ls -1 "$LAB_ALE_FOLDER" 2>/dev/null | wc -l | tr -d ' ')
         if [ "$FILE_COUNT" -gt "0" ]; then
-            echo -e "  Files in folder:"
+            echo "  Files in folder:"
             ls -la "$LAB_ALE_FOLDER" | head -10
         fi
     fi
@@ -127,18 +135,18 @@ fi
 
 # Only exit if both are zero
 if [ "$TIFF_COUNT" -eq "0" ] && [ "$ALE_COUNT" -eq "0" ]; then
-    echo -e "${RED}✗ No input files found${NC}"
+    printf "${RED}✗ No input files found${NC}\n"
     exit 1
 fi
 
 # Run StillGen (no arguments needed with default folders)
-echo -e "\n${GREEN}Starting StillGen processing...${NC}"
+printf "\n${GREEN}Starting StillGen processing...${NC}\n"
 python stillgen.py $EXTRA_ARGS
 
 # Check exit status
 if [ $? -eq 0 ]; then
-    echo -e "\n${GREEN}✓ Processing completed successfully!${NC}"
+    printf "\n${GREEN}✓ Processing completed successfully!${NC}\n"
 else
-    echo -e "\n${RED}✗ Processing failed!${NC}"
+    printf "\n${RED}✗ Processing failed!${NC}\n"
     exit 1
 fi
