@@ -114,7 +114,9 @@ def parse_silverstack_csv(csv_path: str) -> Dict[str, Dict]:
                         'Shoot Date': row.get('Shoot Date', 'N/A'),
                         'Shooting Day': row.get('Shooting Day', 'N/A'),
                         'Crew Unit': row.get('Crew Unit', 'N/A'),
-                        'Shutter Angle': row.get('Shutter Angle', 'N/A')
+                        'Shutter Angle': row.get('Shutter Angle', 'N/A'),
+                        'ND Filter': row.get('ND Filter', 'N/A'),
+                        'Lens Filter': row.get('Lens Filter', 'N/A')
                     }
     except Exception as e:
         logger.error(f"Error parsing Silverstack CSV {csv_path}: {str(e)}")

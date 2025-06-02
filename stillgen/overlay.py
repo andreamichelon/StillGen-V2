@@ -207,13 +207,18 @@ class OverlayGenerator:
         lens_model = get_value_fuzzy(csv_entry, 'Lens Model', 'Lens') if csv_entry else 'N/A'
         focal_length = get_value_fuzzy(csv_entry, 'Focal Length', 'Focal Length (mm)') if csv_entry else 'N/A'
         col5_text = f"Lens: {lens_model}\nFocal Length: {focal_length}"
+
+        # Column 6: Filters
+        nd_filter = get_value_fuzzy(csv_entry, 'ND Filter', 'ND') if csv_entry else 'N/A'
+        lens_filter = get_value_fuzzy(csv_entry, 'Lens Filter') if csv_entry else 'N/A'
+        col6_text = f"ND Filter: {nd_filter}\nLens Filter: {lens_filter}"
         
-        # Column 6: Camera Orientation
+        # Column : Camera Orientation
         camera_tilt = get_value_fuzzy(csv_entry, 'Camera tilt', 'Camera Tilt', 'Tilt') if csv_entry else 'N/A'
         camera_roll = get_value_fuzzy(csv_entry, 'Camera roll', 'Camera Roll', 'Roll') if csv_entry else 'N/A'
-        col6_text = f"Camera Tilt: {camera_tilt}\nCamera Roll: {camera_roll}"
+        col7_text = f"Camera Tilt: {camera_tilt}\nCamera Roll: {camera_roll}"
         
-        return [col1_text, col2_text, col3_text, col4_text, col5_text, col6_text]
+        return [col1_text, col2_text, col3_text, col4_text, col5_text, col6_text, col7_text]
     
     def _add_bottom_center_text(self, draw: ImageDraw.Draw, ale_entry: Dict):
         """Add bottom center text (clip name)."""
