@@ -106,6 +106,24 @@ def process_batch(batch_args):
     return results
 
 
+def cleanup_temp_files(input_folder):
+    """Clean up temporary files in the input folder."""
+    logger.info("Cleaning up temporary files...")
+    count = 0
+    
+    for root, _, files in os.walk(input_folder):
+        for file in files:
+            if "temp" in file.lower() and file.lower().endswith(('.tiff', '.tif', '.cdl', '.temp')):
+                try:
+                    file_path = os.path.join(root, file)
+                    os.remove(file_path)
+                    count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to remove temporary file {file}: {e}")
+    
+    logger.info(f"Removed {count} temporary files")
+
+
 def main():
     args = parse_arguments()
     logger = setup_logging(args.verbose)
@@ -239,6 +257,9 @@ def main():
     # Report results
     logger.info(f"\n=== Processing Complete ===")
     logger.info(f"Successfully processed: {processed}/{len(tiff_files)} files")
+    
+    # Clean up temporary files
+    cleanup_temp_files(config.input_folder)
     
     # Clean up any remaining temporary CDL files
     for root, _, files in os.walk(config.input_folder):

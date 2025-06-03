@@ -107,6 +107,10 @@ def parse_silverstack_csv(csv_path: str) -> Dict[str, Dict]:
             for row in reader:
                 name = row.get('Name', '').strip()
                 if name:
+                    # Handle filter values specifically
+                    nd_filter = row.get('ND Filter', '')
+                    lens_filter = row.get('Lens Filter', '')
+                    
                     clip_data[name] = {
                         'Look Name': row.get('Look Name', 'N/A'),
                         'Director': row.get('Director', 'N/A'),
@@ -115,8 +119,8 @@ def parse_silverstack_csv(csv_path: str) -> Dict[str, Dict]:
                         'Shooting Day': row.get('Shooting Day', 'N/A'),
                         'Crew Unit': row.get('Crew Unit', 'N/A'),
                         'Shutter Angle': row.get('Shutter Angle', 'N/A'),
-                        'ND Filter': row.get('ND Filter', 'N/A'),
-                        'Lens Filter': row.get('Lens Filter', 'N/A')
+                        'ND Filter': nd_filter if nd_filter else '- -',
+                        'Lens Filter': lens_filter if lens_filter else 'N/F'
                     }
     except Exception as e:
         logger.error(f"Error parsing Silverstack CSV {csv_path}: {str(e)}")
@@ -224,27 +228,34 @@ def get_value_fuzzy(data: Optional[Dict], *keys: List[str]) -> str:
     if not data:
         return 'N/A'
     
+    # Determine default empty value based on key
+    default_empty = 'N/A'
+    if any('lens filter' in key.lower() for key in keys):
+        default_empty = 'N/F'
+    elif any('nd filter' in key.lower() for key in keys):
+        default_empty = '- -'
+    
     # Try exact matches first
     for key in keys:
         if key in data:
             value = data[key]
-            return value if value else 'N/A'
+            return value if value else default_empty  # Return appropriate default for empty values
     
     # Try case-insensitive matches
     data_lower = {k.lower(): v for k, v in data.items()}
     for key in keys:
         if key.lower() in data_lower:
             value = data_lower[key.lower()]
-            return value if value else 'N/A'
+            return value if value else default_empty  # Return appropriate default for empty values
     
     # Try partial matches
     for key in keys:
         for data_key in data:
             if key.lower() in data_key.lower():
                 value = data[data_key]
-                return value if value else 'N/A'
+                return value if value else default_empty  # Return appropriate default for empty values
     
-    return 'N/A'
+    return default_empty  # Return the appropriate default based on key type
 
 
 def validate_clip_data(clip_data: Dict[str, Dict]) -> Dict[str, List[str]]:

@@ -16,6 +16,11 @@ def find_tiff_files(input_folder: str) -> List[str]:
     
     for root, _, files in os.walk(input_folder):
         for file in files:
+            # Skip temporary files
+            if "temp" in file.lower():
+                logger.debug(f"Skipping temporary file: {file}")
+                continue
+                
             if file.lower().endswith(('.tiff', '.tif')):
                 tiff_files.append(os.path.join(root, file))
     

@@ -183,19 +183,17 @@ class OverlayGenerator:
         """Prepare text content for top columns."""
         # Column 1: Look Name and ISO
         look_name = get_value_fuzzy(silverstack_entry, 'Look Name') if silverstack_entry else 'N/A'
-        iso_value = get_value_fuzzy(ale_entry, 'Iso', 'ISO')
+        iso_value = get_value_fuzzy(ale_entry, 'Iso', 'ISO') if ale_entry else 'N/A'
         col1_text = f"Look Name: {look_name}\nISO: {iso_value}"
         
         # Column 2: White Balance
-        wb = get_value_fuzzy(ale_entry, 'White balance', 'White Balance')
-        wb_tint = get_value_fuzzy(ale_entry, 'White balance tint', 'White Balance Tint')
+        wb = get_value_fuzzy(ale_entry, 'White balance', 'White Balance') if ale_entry else 'N/A'
+        wb_tint = get_value_fuzzy(ale_entry, 'White balance tint', 'White Balance Tint') if ale_entry else 'N/A'
         col2_text = f"WB: {wb}\nTint: {wb_tint}"
         
         # Column 3: Shutter and FPS
-        shutter_angle = get_value_fuzzy(silverstack_entry, 'Shutter Angle') if silverstack_entry else None
-        if not shutter_angle or shutter_angle == 'N/A':
-            shutter_angle = get_value_fuzzy(ale_entry, 'Shutter', 'Shutter Angle')
-        sensor_fps = get_value_fuzzy(ale_entry, 'Sensor fps', 'Sensor FPS')
+        shutter_angle = get_value_fuzzy(silverstack_entry, 'Shutter Angle') if silverstack_entry else 'N/A'
+        sensor_fps = get_value_fuzzy(ale_entry, 'Sensor fps', 'Sensor FPS') if ale_entry else 'N/A'
         col3_text = f"Shutter Angle: {shutter_angle}\nSensor FPS: {sensor_fps}"
         
         # Column 4: Focus and Aperture
@@ -209,8 +207,14 @@ class OverlayGenerator:
         col5_text = f"Lens: {lens_model}\nFocal Length: {focal_length}"
 
         # Column 6: Filters
-        nd_filter = get_value_fuzzy(csv_entry, 'ND Filter', 'ND') if csv_entry else 'N/A'
-        lens_filter = get_value_fuzzy(csv_entry, 'Lens Filter') if csv_entry else 'N/A'
+        nd_filter = get_value_fuzzy(csv_entry, 'ND Filter', 'ND') if csv_entry else '- -'
+        if nd_filter == 'N/A' or not nd_filter:
+            nd_filter = '- -'
+            
+        lens_filter = get_value_fuzzy(csv_entry, 'Lens Filter') if csv_entry else 'N/F'
+        if lens_filter == 'N/A' or not lens_filter:
+            lens_filter = 'N/F'
+            
         col6_text = f"ND Filter: {nd_filter}\nLens Filter: {lens_filter}"
         
         # Column : Camera Orientation
