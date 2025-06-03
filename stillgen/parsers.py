@@ -107,25 +107,16 @@ def parse_silverstack_csv(csv_path: str) -> Dict[str, Dict]:
             for row in reader:
                 name = row.get('Name', '').strip()
                 if name:
-                    # Handle filter values specifically
-                    nd_filter = row.get('ND Filter', '')
-                    lens_filter = row.get('Lens Filter', '')
+                    # Create a dictionary with all available fields, using empty string as default
+                    clip_dict = {}
+                    for key, value in row.items():
+                        # Only store non-empty values
+                        if value and value.strip():
+                            clip_dict[key.strip()] = value.strip()
                     
-                    clip_data[name] = {
-                        'Look Name': row.get('Look Name', 'N/A'),
-                        'Director': row.get('Director', 'N/A'),
-                        'Cinematographer': row.get('Cinematographer', 'N/A'),
-                        'Shoot Date': row.get('Shoot Date', 'N/A'),
-                        'Shooting Day': row.get('Shooting Day', 'N/A'),
-                        'Crew Unit': row.get('Crew Unit', 'N/A'),
-<<<<<<< HEAD
-                        'Shutter Angle': row.get('Shutter Angle', 'N/A'),
-                        'ND Filter': nd_filter if nd_filter else '- -',
-                        'Lens Filter': lens_filter if lens_filter else 'N/F'
-=======
-                        'Shutter Angle': row.get('Shutter Angle', 'N/A')
->>>>>>> parent of 4bfd65c (added lens filter)
-                    }
+                    # Store the clip data
+                    clip_data[name] = clip_dict
+                    
     except Exception as e:
         logger.error(f"Error parsing Silverstack CSV {csv_path}: {str(e)}")
         
@@ -227,39 +218,41 @@ class LazyCSVLoader:
         self._cache.clear()
 
 
-def get_value_fuzzy(data: Optional[Dict], *keys: List[str]) -> str:
-    """Get value from dictionary with fuzzy key matching."""
-    if not data:
-        return 'N/A'
+def get_value_fuzzy(data: Optional[Dict], *keys: List[str], default: str = '') -> str:
+    """Get value from dictionary with fuzzy key matching.
     
-    # Determine default empty value based on key
-    default_empty = 'N/A'
-    if any('lens filter' in key.lower() for key in keys):
-        default_empty = 'N/F'
-    elif any('nd filter' in key.lower() for key in keys):
-        default_empty = '- -'
+    Args:
+        data: Dictionary to search in
+        *keys: List of possible keys to match
+        default: Default value to return if no match is found
+        
+    Returns:
+        The matched value or the default value if no match is found
+    """
+    if not data:
+        return default
     
     # Try exact matches first
     for key in keys:
         if key in data:
             value = data[key]
-            return value if value else default_empty  # Return appropriate default for empty values
+            return value if value else default
     
     # Try case-insensitive matches
     data_lower = {k.lower(): v for k, v in data.items()}
     for key in keys:
         if key.lower() in data_lower:
             value = data_lower[key.lower()]
-            return value if value else default_empty  # Return appropriate default for empty values
+            return value if value else default
     
     # Try partial matches
     for key in keys:
         for data_key in data:
             if key.lower() in data_key.lower():
                 value = data[data_key]
-                return value if value else default_empty  # Return appropriate default for empty values
+                return value if value else default
     
-    return default_empty  # Return the appropriate default based on key type
+    return default
 
 
 def validate_clip_data(clip_data: Dict[str, Dict]) -> Dict[str, List[str]]:

@@ -183,17 +183,19 @@ class OverlayGenerator:
         """Prepare text content for top columns."""
         # Column 1: Look Name and ISO
         look_name = get_value_fuzzy(silverstack_entry, 'Look Name') if silverstack_entry else 'N/A'
-        iso_value = get_value_fuzzy(ale_entry, 'Iso', 'ISO') if ale_entry else 'N/A'
+        iso_value = get_value_fuzzy(ale_entry, 'Iso', 'ISO')
         col1_text = f"Look Name: {look_name}\nISO: {iso_value}"
         
         # Column 2: White Balance
-        wb = get_value_fuzzy(ale_entry, 'White balance', 'White Balance') if ale_entry else 'N/A'
-        wb_tint = get_value_fuzzy(ale_entry, 'White balance tint', 'White Balance Tint') if ale_entry else 'N/A'
+        wb = get_value_fuzzy(ale_entry, 'White balance', 'White Balance')
+        wb_tint = get_value_fuzzy(ale_entry, 'White balance tint', 'White Balance Tint')
         col2_text = f"WB: {wb}\nTint: {wb_tint}"
         
         # Column 3: Shutter and FPS
-        shutter_angle = get_value_fuzzy(silverstack_entry, 'Shutter Angle') if silverstack_entry else 'N/A'
-        sensor_fps = get_value_fuzzy(ale_entry, 'Sensor fps', 'Sensor FPS') if ale_entry else 'N/A'
+        shutter_angle = get_value_fuzzy(silverstack_entry, 'Shutter Angle') if silverstack_entry else None
+        if not shutter_angle or shutter_angle == 'N/A':
+            shutter_angle = get_value_fuzzy(ale_entry, 'Shutter', 'Shutter Angle')
+        sensor_fps = get_value_fuzzy(ale_entry, 'Sensor fps', 'Sensor FPS')
         col3_text = f"Shutter Angle: {shutter_angle}\nSensor FPS: {sensor_fps}"
         
         # Column 4: Focus and Aperture
@@ -205,27 +207,18 @@ class OverlayGenerator:
         lens_model = get_value_fuzzy(csv_entry, 'Lens Model', 'Lens') if csv_entry else 'N/A'
         focal_length = get_value_fuzzy(csv_entry, 'Focal Length', 'Focal Length (mm)') if csv_entry else 'N/A'
         col5_text = f"Lens: {lens_model}\nFocal Length: {focal_length}"
-<<<<<<< HEAD
 
         # Column 6: Filters
-        nd_filter = get_value_fuzzy(csv_entry, 'ND Filter', 'ND') if csv_entry else '- -'
-        if nd_filter == 'N/A' or not nd_filter:
-            nd_filter = '- -'
-            
-        lens_filter = get_value_fuzzy(csv_entry, 'Lens Filter') if csv_entry else 'N/F'
-        if lens_filter == 'N/A' or not lens_filter:
-            lens_filter = 'N/F'
-            
+        nd_filter = get_value_fuzzy(silverstack_entry, 'ND Filter', default='- -') if silverstack_entry else '- -'
+        lens_filter = get_value_fuzzy(silverstack_entry, 'Lens Filter', default='N/F') if silverstack_entry else 'N/F'
         col6_text = f"ND Filter: {nd_filter}\nLens Filter: {lens_filter}"
-=======
->>>>>>> parent of 4bfd65c (added lens filter)
         
-        # Column 6: Camera Orientation
+        # Column 7: Camera Orientation
         camera_tilt = get_value_fuzzy(csv_entry, 'Camera tilt', 'Camera Tilt', 'Tilt') if csv_entry else 'N/A'
         camera_roll = get_value_fuzzy(csv_entry, 'Camera roll', 'Camera Roll', 'Roll') if csv_entry else 'N/A'
-        col6_text = f"Camera Tilt: {camera_tilt}\nCamera Roll: {camera_roll}"
+        col7_text = f"Camera Tilt: {camera_tilt}\nCamera Roll: {camera_roll}"
         
-        return [col1_text, col2_text, col3_text, col4_text, col5_text, col6_text]
+        return [col1_text, col2_text, col3_text, col4_text, col5_text, col6_text, col7_text]
     
     def _add_bottom_center_text(self, draw: ImageDraw.Draw, ale_entry: Dict):
         """Add bottom center text (clip name)."""
