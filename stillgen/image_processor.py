@@ -2,14 +2,15 @@
 import os
 import subprocess
 from PIL import Image
-from typing import Dict, Optional, Tuple
+import numpy as np
+from typing import Dict, Optional
 import logging
-from pathlib import Path
 
 from .cdl import create_cdl_file, update_ocio_config, ColorspaceDetector, TempFileManager
 from .overlay import OverlayGenerator
 from .utils import extract_clip_info, generate_output_filename
-from .parsers import LazyCSVLoader, get_value_fuzzy
+from .parsers import LazyCSVLoader, parse_extraction_info, calculate_crop_from_extraction
+from .el_zone import ELZoneProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,12 @@ class StillProcessor:
         self.csv_loader = csv_loader
         self.overlay_generator = OverlayGenerator(config)
         self.colorspace_detector = ColorspaceDetector()
+        
+        # Initialize EL Zone processor if enabled (for separate file generation)
+        self.el_zone_processor = None
+        if getattr(config, 'generate_el_zone', False) and not getattr(config, 'el_zone_overlay', False):
+            log_format = getattr(config, 'el_zone_log_format', 'logc4')
+            self.el_zone_processor = ELZoneProcessor(log_format)
         
         # Validate oiiotool is available
         self._check_oiiotool()
@@ -63,8 +70,19 @@ class StillProcessor:
             output_filename = generate_output_filename(ale_entry, silverstack_entry, csv_entry)
             output_path = os.path.join(self.config.output_folder, f"{output_filename}.tiff")
             
+            # Generate EL Zone output path if enabled
+            el_zone_output_path = None
+            if self.el_zone_processor:
+                el_zone_output_path = os.path.join(
+                    self.config.output_folder, f"{output_filename}_exp_tool.jpg"
+                )
+            
             # Skip if already processed (for resume functionality)
             if self.config.resume and os.path.exists(output_path):
+                # Also check EL Zone output if enabled
+                if el_zone_output_path and not os.path.exists(el_zone_output_path):
+                    # Generate EL Zone for existing processed image
+                    self._generate_el_zone_output(input_path, el_zone_output_path, ale_entry)
                 logger.debug(f"Skipping already processed: {output_path}")
                 return True
             
@@ -77,17 +95,61 @@ class StillProcessor:
                 return False
             
             # Load and process image
-            final_image = self._process_image_geometry(processed_image_path)
+            final_image, image_bounds = self._process_image_geometry(processed_image_path, ale_entry)
             
-            # Add overlays
+            # Load and crop source image for EL Zone overlay if needed
+            cropped_source_image = None
+            el_zone_overlay_enabled = getattr(self.config, 'el_zone_overlay', False)
+            logger.debug(f"process_image: el_zone_overlay config = {el_zone_overlay_enabled}")
+            
+            if el_zone_overlay_enabled:
+                try:
+                    logger.debug(f"Loading source image from: {input_path}")
+                    source_image = Image.open(input_path).convert("RGBA")
+                    
+                    # Apply the same crop as the main image (using extraction if available)
+                    width, height = source_image.size
+                    crop_params = None
+                    if ale_entry and 'Extraction' in ale_entry:
+                        extraction_info = parse_extraction_info(ale_entry['Extraction'])
+                        if extraction_info:
+                            crop_params = calculate_crop_from_extraction(extraction_info)
+                    
+                    if crop_params:
+                        left = crop_params['crop_left']
+                        right = width - crop_params['crop_right']
+                        top = crop_params['crop_top']
+                        bottom = height - crop_params['crop_bottom']
+                    else:
+                        left = self.config.crop_left
+                        right = width - self.config.crop_right
+                        top = self.config.crop_top
+                        bottom = height - self.config.crop_bottom
+                    
+                    cropped_source_image = source_image.crop((left, top, right, bottom))
+                    
+                    logger.debug(f"Source image cropped: original={source_image.size}, cropped={cropped_source_image.size}")
+                except Exception as e:
+                    logger.error(f"Failed to load source image for EL Zone overlay: {e}", exc_info=True)
+                    cropped_source_image = None
+            
+            # Add overlays with image bounds info
+            logger.debug(f"Calling add_overlays with source_image={cropped_source_image is not None}, bounds={image_bounds}")
             self.overlay_generator.add_overlays(
-                final_image, ale_entry, silverstack_entry, csv_entry
+                final_image, ale_entry, silverstack_entry, csv_entry, 
+                cropped_source_image, image_bounds
             )
             
             # Save final image
             self._save_image(final_image, output_path)
             
+            # Generate EL Zone output if enabled
+            if self.el_zone_processor and el_zone_output_path:
+                self._generate_el_zone_output(input_path, el_zone_output_path, ale_entry)
+            
             logger.info(f"Processed: {os.path.basename(input_path)} -> {os.path.basename(output_path)}")
+            if el_zone_output_path:
+                logger.info(f"EL Zone: {os.path.basename(input_path)} -> {os.path.basename(el_zone_output_path)}")
             return True
             
         except Exception as e:
@@ -143,9 +205,10 @@ class StillProcessor:
         # Set OCIO environment variable
         os.environ["OCIO"] = ocio_config_path
         
-        # Detect source colorspace
+        # Detect source colorspace and check if input LUT is needed
         clip_name = os.path.basename(input_path).split('-')[0]
         source_colorspace = self.colorspace_detector.detect_colorspace(clip_name, ale_entry)
+        uses_input_lut = self.colorspace_detector.uses_input_lut(clip_name)
         
         # Create temporary output path
         temp_output = os.path.join(
@@ -155,31 +218,55 @@ class StillProcessor:
         temp_manager.add_file(temp_output)
         
         try:
-            # First convert to linear
-            cmd1 = [
-                "oiiotool",
-                input_path,
-                "--colorconvert", source_colorspace, "linear",
-                "-o", temp_output
-            ]
-            
-            result = subprocess.run(cmd1, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f"Color conversion to linear failed: {result.stderr}")
-                return None
-            
-            # Then apply CDL and LUT
-            cmd2 = [
-                "oiiotool",
-                temp_output,
-                "--colorconvert", "linear", "Output_w_Look",
-                "-o", temp_output
-            ]
-            
-            result = subprocess.run(cmd2, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f"CDL/LUT application failed: {result.stderr}")
-                return None
+            if uses_input_lut:
+                # For U and F cameras: Apply input LUT + CDL + output LUT pipeline
+                # The REDLog3 colorspace already includes the input LUT transformation
+                # (REDLog3G10WG_to_gm5_ARRILogC4WG4.cube) as defined in the OCIO config
+                logger.debug(f"Using input LUT pipeline for camera letter: {clip_name[0]}")
+                
+                # Direct transform from source colorspace to final output
+                # This applies: input LUT -> linear -> CDL -> output LUT
+                cmd = [
+                    "oiiotool",
+                    input_path,
+                    "--colorconvert", source_colorspace, "Output_w_Look",
+                    "-o", temp_output
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.error(f"Input LUT color pipeline failed: {result.stderr}")
+                    return None
+                    
+            else:
+                # Standard pipeline for other cameras: source -> linear -> CDL + output LUT
+                logger.debug(f"Using standard pipeline for camera letter: {clip_name[0]}")
+                
+                # First convert to linear
+                cmd1 = [
+                    "oiiotool",
+                    input_path,
+                    "--colorconvert", source_colorspace, "linear",
+                    "-o", temp_output
+                ]
+                
+                result = subprocess.run(cmd1, capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.error(f"Color conversion to linear failed: {result.stderr}")
+                    return None
+                
+                # Then apply CDL and LUT
+                cmd2 = [
+                    "oiiotool",
+                    temp_output,
+                    "--colorconvert", "linear", "Output_w_Look",
+                    "-o", temp_output
+                ]
+                
+                result = subprocess.run(cmd2, capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.error(f"CDL/LUT application failed: {result.stderr}")
+                    return None
             
             return temp_output
             
@@ -187,18 +274,44 @@ class StillProcessor:
             logger.error(f"Color transform failed: {e}")
             return None
     
-    def _process_image_geometry(self, image_path: str) -> Image.Image:
-        """Process image geometry (crop, resize, add black bars)."""
+    def _process_image_geometry(self, image_path: str, ale_entry: Optional[Dict] = None) -> tuple[Image.Image, dict]:
+        """Process image geometry (crop, resize, add black bars).
+        
+        Args:
+            image_path: Path to the image file
+            ale_entry: ALE entry containing extraction information
+        
+        Returns:
+            tuple: (processed image, image bounds dict with x, y, width, height)
+        """
         # Load image
         image = Image.open(image_path).convert("RGBA")
+        width, height = image.size
+        
+        # Try to get crop parameters from extraction information
+        crop_params = None
+        if ale_entry and 'Extraction' in ale_entry:
+            extraction_info = parse_extraction_info(ale_entry['Extraction'])
+            if extraction_info:
+                crop_params = calculate_crop_from_extraction(extraction_info)
+                logger.debug(f"Using extraction-based cropping for {os.path.basename(image_path)}")
+        
+        # Use extraction-based crop if available, otherwise fall back to config
+        if crop_params:
+            left = crop_params['crop_left']
+            right = width - crop_params['crop_right']
+            top = crop_params['crop_top']
+            bottom = height - crop_params['crop_bottom']
+            logger.debug(f"Extraction crop: L{left} R{crop_params['crop_right']} T{top} B{crop_params['crop_bottom']}")
+        else:
+            # Fallback to config-based cropping
+            left = self.config.crop_left
+            right = width - self.config.crop_right
+            top = self.config.crop_top
+            bottom = height - self.config.crop_bottom
+            logger.debug(f"Config crop: L{left} R{self.config.crop_right} T{top} B{self.config.crop_bottom}")
         
         # Crop image
-        width, height = image.size
-        left = self.config.crop_left
-        right = width - self.config.crop_right
-        top = self.config.crop_top
-        bottom = height - self.config.crop_bottom
-        
         image = image.crop((left, top, right, bottom))
         
         # Calculate new dimensions maintaining aspect ratio
@@ -223,7 +336,15 @@ class StillProcessor:
         y_offset = (self.config.output_height - new_height) // 2
         container.paste(image, (0, y_offset))
         
-        return container
+        # Return container and image bounds
+        image_bounds = {
+            'x': 0,
+            'y': y_offset,
+            'width': new_width,
+            'height': new_height
+        }
+        
+        return container, image_bounds
     
     def _save_image(self, image: Image.Image, output_path: str):
         """Save image with appropriate quality settings."""
@@ -232,6 +353,26 @@ class StillProcessor:
         
         # Save as TIFF without quality parameter (not supported for TIFF)
         image.save(output_path, 'TIFF')
+    
+    def _generate_el_zone_output(self, input_path: str, output_path: str, 
+                                ale_entry: Optional[Dict] = None):
+        """Generate EL Zone System analysis output."""
+        try:
+            # Load the input image
+            input_image = Image.open(input_path)
+            
+            # Generate complete EL Zone analysis (4-quadrant layout)
+            el_zone_result = self.el_zone_processor.process_image(
+                input_image, 
+                output_size=(1920, 1080)
+            )
+            
+            # Convert to PIL image and save as JPEG
+            el_zone_pil = Image.fromarray((el_zone_result * 255).astype(np.uint8), 'RGB')
+            el_zone_pil.save(output_path, 'JPEG', quality=95, optimize=True)
+            
+        except Exception as e:
+            logger.error(f"Failed to generate EL Zone analysis for {input_path}: {e}")
 
 
 class BatchProcessor:

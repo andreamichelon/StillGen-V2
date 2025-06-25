@@ -12,3 +12,10 @@ PyYAML>=6.0
 # Optional but recommended
 matplotlib>=3.7.0  # For histogram analysis
 scikit-image>=0.21.0  # Advanced image processing
+
+# Required for EL Zone System
+opencv-python>=4.8.0  # For professional vectorscope/waveform visualization
+# colour-science>=0.4.0  # Install via pipx: pipx install colour-science --include-deps
+
+# Professional color management (install via Homebrew)
+# PyOpenColorIO>=2.2.0  # brew install opencolorio

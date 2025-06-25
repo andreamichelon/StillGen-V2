@@ -82,9 +82,26 @@ class OverlayGenerator:
         self.config = config
         self.font_cache = FontCache()
         self.image_cache = ImageCache()
+        self.el_zone_processor = None
+        
+        # Initialize EL Zone processor if overlay is enabled
+        el_zone_overlay_enabled = getattr(config, 'el_zone_overlay', False)
+        logger.debug(f"OverlayGenerator init: el_zone_overlay={el_zone_overlay_enabled}")
+        
+        if el_zone_overlay_enabled:
+            try:
+                from .el_zone import ELZoneProcessor
+                log_format = getattr(config, 'el_zone_log_format', 'logc4')
+                self.el_zone_processor = ELZoneProcessor(log_format)
+                logger.info(f"EL Zone processor initialized with log format: {log_format}")
+            except Exception as e:
+                logger.error(f"Failed to initialize EL Zone processor: {e}")
+                self.el_zone_processor = None
     
     def add_overlays(self, image: Image.Image, ale_entry: Dict, 
-                    silverstack_entry: Optional[Dict], csv_entry: Optional[Dict]):
+                    silverstack_entry: Optional[Dict], csv_entry: Optional[Dict],
+                    source_image: Optional[Image.Image] = None,
+                    image_bounds: Optional[Dict] = None):
         """Add all overlays to the image."""
         # Add logos
         if not self.config.profile.settings.get('skip_overlays', False):
@@ -92,6 +109,16 @@ class OverlayGenerator:
         
         # Add text overlays
         self._add_text_overlays(image, ale_entry, silverstack_entry, csv_entry)
+        
+        # Add EL Zone overlay if enabled
+        logger.debug(f"add_overlays: el_zone_processor={self.el_zone_processor is not None}, source_image={source_image is not None}")
+        if self.el_zone_processor and source_image is not None:
+            logger.debug("Calling _add_el_zone_overlay")
+            self._add_el_zone_overlay(image, source_image, image_bounds)
+        elif self.el_zone_processor and source_image is None:
+            logger.warning("EL Zone processor available but source_image is None")
+        elif not self.el_zone_processor and getattr(self.config, 'el_zone_overlay', False):
+            logger.warning("EL Zone overlay enabled in config but processor not initialized")
     
     def _add_logos(self, image: Image.Image):
         """Add logo images to the container."""
@@ -213,10 +240,11 @@ class OverlayGenerator:
         lens_filter = get_value_fuzzy(silverstack_entry, 'Lens Filter', default='N/F') if silverstack_entry else 'N/F'
         col6_text = f"ND Filter: {nd_filter}\nLens Filter: {lens_filter}"
         
-        # Column 7: Camera Orientation
+        # Column 7: Camera Orientation (combined tilt/roll)
         camera_tilt = get_value_fuzzy(csv_entry, 'Camera tilt', 'Camera Tilt', 'Tilt') if csv_entry else 'N/A'
         camera_roll = get_value_fuzzy(csv_entry, 'Camera roll', 'Camera Roll', 'Roll') if csv_entry else 'N/A'
-        col7_text = f"Camera Tilt: {camera_tilt}\nCamera Roll: {camera_roll}"
+        extraction = get_value_fuzzy(ale_entry, 'Extraction', default='N/A')
+        col7_text = f"Camera Tilt/Roll: {camera_tilt}, {camera_roll}\nExtraction: {extraction}"
         
         return [col1_text, col2_text, col3_text, col4_text, col5_text, col6_text, col7_text]
     
@@ -247,11 +275,8 @@ class OverlayGenerator:
         # Column 2: Shoot Date, Day, and Unit
         shoot_date = get_value_fuzzy(ale_entry, 'Shoot Date', 'Shoot date')
         shoot_day = get_value_fuzzy(ale_entry, 'Shoot day', 'Shoot Day', 'Shooting Day')
-        crew_unit = get_value_fuzzy(silverstack_entry, 'Crew Unit', 'Unit') if silverstack_entry else ''
         
         col2_text = f"Shoot Date: {shoot_date}\n\nShoot Day: {shoot_day}"
-        if crew_unit and crew_unit != 'N/A':
-            col2_text += f"_{crew_unit}"
         
         # Calculate positions
         margin = self.config.logo_padding
@@ -311,6 +336,69 @@ class OverlayGenerator:
                 y = tool_y - 160
                 
                 draw.multiline_text((x, y), text, font=font, fill="white")
+    
+    def _add_el_zone_overlay(self, image: Image.Image, source_image: Image.Image,
+                            image_bounds: Optional[Dict] = None):
+        """Add EL Zone overlay to the image."""
+        try:
+            logger.debug(f"_add_el_zone_overlay called with image size: {image.size}, source_image size: {source_image.size}, bounds: {image_bounds}")
+            
+            # Get overlay size from config
+            overlay_size = getattr(self.config, 'el_zone_overlay_size', 400)
+            logger.debug(f"EL Zone overlay size: {overlay_size}")
+            
+            # Generate EL Zone overlay
+            el_zone_overlay = self.el_zone_processor.create_el_zone_overlay(
+                source_image, 
+                size=overlay_size,
+                add_border=True
+            )
+            logger.debug(f"EL Zone overlay generated with size: {el_zone_overlay.size}")
+            
+            # Calculate position based on config and image bounds
+            position = getattr(self.config, 'el_zone_overlay_position', 'bottom_right')
+            padding = 20  # Padding from edges
+            logger.debug(f"EL Zone overlay position: {position}")
+            
+            # Use image bounds if provided, otherwise use full canvas
+            if image_bounds:
+                img_x = image_bounds['x']
+                img_y = image_bounds['y']
+                img_width = image_bounds['width']
+                img_height = image_bounds['height']
+                logger.debug(f"Using image bounds: x={img_x}, y={img_y}, w={img_width}, h={img_height}")
+            else:
+                img_x = 0
+                img_y = 0
+                img_width = image.width
+                img_height = image.height
+                logger.debug("No image bounds provided, using full canvas")
+            
+            # Calculate position relative to the actual image content
+            if position == 'bottom_right':
+                x = img_x + img_width - el_zone_overlay.width - padding
+                y = img_y + img_height - el_zone_overlay.height - padding
+            elif position == 'bottom_left':
+                x = img_x + padding
+                y = img_y + img_height - el_zone_overlay.height - padding
+            elif position == 'top_right':
+                x = img_x + img_width - el_zone_overlay.width - padding
+                y = img_y + padding
+            elif position == 'top_left':
+                x = img_x + padding
+                y = img_y + padding
+            else:
+                # Default to bottom right
+                x = img_x + img_width - el_zone_overlay.width - padding
+                y = img_y + img_height - el_zone_overlay.height - padding
+            
+            # Composite the EL Zone overlay onto the main image
+            logger.debug(f"Pasting EL Zone overlay at position: ({x}, {y})")
+            image.paste(el_zone_overlay, (x, y), el_zone_overlay)
+            logger.info("EL Zone overlay successfully added to image")
+            
+        except Exception as e:
+            logger.error(f"Failed to add EL Zone overlay: {e}", exc_info=True)
 
 
 class TextLayoutCalculator:
@@ -388,7 +476,8 @@ def create_test_overlay(config, output_path: str = "test_overlay.png"):
         'ASC_SOP': '(1.0 1.0 1.0)(0.0 0.0 0.0)(1.0 1.0 1.0)',
         'ASC_SAT': '1.0',
         'Shoot Date': '2024-01-15',
-        'Shoot day': 'Day 1'
+        'Shoot day': 'Day 1',
+        'Extraction': 'A35_4608x3164_SPH_2.39_95'
     }
     
     test_silverstack = {

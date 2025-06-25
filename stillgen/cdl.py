@@ -179,14 +179,22 @@ class ColorspaceDetector:
     @classmethod
     def detect_colorspace(cls, clip_name: str, ale_entry: Optional[dict] = None) -> str:
         """Detect source colorspace from clip name or metadata."""
-        # Original logic: R = RED camera, everything else = ARRI
         camera_letter = clip_name[0] if clip_name else ''
         
         if camera_letter == 'R':
             return "REDLog3"
+        elif camera_letter in ['U', 'F']:
+            # U and F cameras use REDLog3 with input LUT
+            return "REDLog3"
         else:
             # All other camera letters (A, B, C, etc.) are ARRI cameras
             return "Arri LogC4"
+    
+    @classmethod
+    def uses_input_lut(cls, clip_name: str) -> bool:
+        """Check if this camera letter requires input LUT processing."""
+        camera_letter = clip_name[0] if clip_name else ''
+        return camera_letter in ['U', 'F']
 
 
 def validate_cdl_values(asc_sop: str, asc_sat: str) -> Tuple[bool, Optional[str]]:

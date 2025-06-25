@@ -82,6 +82,14 @@ class Config:
     cache_dir: str = ".stillgen_cache"
     max_cache_size_mb: int = 1000
     
+    # EL Zone System settings
+    generate_el_zone: bool = False
+    el_zone_log_format: str = "logc4"  # Options: logc4, slog3, apple_log, redlog3, linear
+    el_zone_suffix: str = "_el_zone"
+    el_zone_overlay: bool = True  # Overlay EL Zone on the image instead of separate file
+    el_zone_overlay_size: int = 400  # Size of the EL Zone overlay in pixels (width)
+    el_zone_overlay_position: str = "bottom_right"  # Position of the EL Zone overlay
+    
     # Text overlay positions
     text_margin: int = 60
     text_columns: int = 6
@@ -154,7 +162,13 @@ class Config:
             'tool_image': self.tool_image,
             'logo_padding': self.logo_padding,
             'logo_max_height': self.logo_max_height,
-            'logo_spacing': self.logo_spacing
+            'logo_spacing': self.logo_spacing,
+            'generate_el_zone': self.generate_el_zone,
+            'el_zone_log_format': self.el_zone_log_format,
+            'el_zone_suffix': self.el_zone_suffix,
+            'el_zone_overlay': self.el_zone_overlay,
+            'el_zone_overlay_size': self.el_zone_overlay_size,
+            'el_zone_overlay_position': self.el_zone_overlay_position
         }
         
         try:

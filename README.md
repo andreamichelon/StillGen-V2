@@ -5,7 +5,13 @@ StillGen is a high-performance tool for processing film stills with color gradin
 ## Features
 
 - **Color Management**: Apply CDL (Color Decision List) and LUTs using OpenColorIO
+- **Multi-Camera Support**: ARRI Alexa 35, RED cameras (R, U, F) with camera-specific processing
 - **Metadata Overlays**: Automatically add production information, technical data, and logos
+- **EL Zone System**: Professional exposure analysis with 4-quadrant layout:
+  - **EL Zone False Color**: Industry-standard exposure visualization
+  - **Professional Vectorscope**: YUV color analysis with broadcast targets
+  - **Luminance Waveform**: Log image monitoring with IRE scale
+  - **Direct Image Correlation**: All tools scale to match source image dimensions
 - **Batch Processing**: Process multiple images in parallel using all CPU cores
 - **Smart Caching**: Cache CDL files and images for improved performance
 - **Resume Capability**: Skip already processed files when resuming interrupted jobs
@@ -16,38 +22,77 @@ StillGen is a high-performance tool for processing film stills with color gradin
 
 ### Prerequisites
 
-1. **Python 3.6+**
-2. **OpenImageIO** (for `oiiotool` command)
-   - macOS: `brew install openimageio`
-   - Linux: `sudo apt-get install openimageio-tools`
-   - Windows: Download from [OpenImageIO releases](https://github.com/OpenImageIO/oiio/releases)
+1. **Python 3.8+**
+2. **Homebrew** (macOS) - Install from [brew.sh](https://brew.sh/)
+3. **System Dependencies** (installed automatically by run script):
+   - **OpenImageIO** (for `oiiotool` command): `brew install openimageio`
+   - **OpenColorIO** (professional color management): `brew install opencolorio`
+   - **pipx** (isolated Python app installs): `brew install pipx`
 
-### Setup
+### Quick Setup (Recommended)
 
-1. Clone or download the StillGen files
-2. Run the setup script to organize the folder structure:
+**For macOS/Linux users:**
+```bash
+# Clone or download StillGen files
+# Navigate to the project directory
+# Run the setup script (handles all dependencies automatically)
+./run-stillgen-sh.sh --help
+```
+
+The `run-stillgen-sh.sh` script automatically:
+- Checks for and installs Homebrew if needed
+- Installs OpenImageIO and OpenColorIO via Homebrew
+- Installs pipx for isolated Python environments
+- Installs colour-science via pipx: `pipx install colour-science --include-deps`
+- Creates and manages Python virtual environment
+- Installs all required Python packages
+
+### Manual Setup
+
+1. **Install System Dependencies:**
    ```bash
-   python setup_folders.py
+   # Install Homebrew (if not already installed)
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   
+   # Install required system packages
+   brew install openimageio opencolorio pipx
+   pipx ensurepath
+   
+   # Install colour-science for professional log decoding
+   pipx install colour-science --include-deps
    ```
-3. Create a virtual environment (recommended):
+
+2. **Setup Python Environment:**
    ```bash
+   # Create virtual environment
    python3 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-4. Install Python dependencies:
-   ```bash
+   
+   # Install Python dependencies
    pip install -r requirements.txt
    ```
-5. Place required files in the appropriate locations:
-   - OCIO config template → `stillgen/static/config_template.ocio`
-   - Logo images → `stillgen/static/logo_image.png` and `tool_image.png`
-   - Font file → `stillgen/static/fonts/monarcha-regular.ttf`
-   - LUT files → `stillgen/static/lut_dir/`
-6. Place your content in the numbered folders:
-   - TIFF files → `01_INPUT_STILLS/`
-   - Silverstack CSVs → `02_DIT_CSV/`
-   - Frame CSVs → `03_DIT_FbF/`
-   - ALE files → `04_LAB_ALE/`
+
+3. **Verify Installation:**
+   ```bash
+   # Check if all tools are available
+   oiiotool --help
+   python -c "import colour; print('Colour-science:', colour.__version__)"
+   python -c "import cv2; print('OpenCV:', cv2.__version__)"
+   ```
+
+### Professional Dependencies
+
+**Required for EL Zone System:**
+- **colour-science** - Official ARRI LogC4, Sony S-Log3 decoding
+- **opencv-python** - Professional vectorscope and waveform generation
+- **OpenColorIO** - Industry-standard color management (optional but recommended)
+
+**Installation via pipx (recommended):**
+```bash
+pipx install colour-science --include-deps
+```
+
+This ensures colour-science is available system-wide and won't conflict with project dependencies.
 
 ## Usage
 
@@ -88,6 +133,29 @@ python stillgen.py --config-file stillgen_config.yaml
 - `--dry-run`: Show what would be processed without doing it
 - `--verbose`: Enable detailed logging
 - `--config-file`: Load settings from YAML/JSON file
+- `--el-zone`: Generate EL Zone System analysis (4-quadrant layout)
+- `--el-zone-log {logc4,slog3,apple_log,redlog3,linear}`: Log format for EL Zone processing
+
+### EL Zone System Usage
+
+Generate professional exposure analysis tools alongside your processed stills:
+
+```bash
+# Generate EL Zone analysis with LogC4 decoding
+python stillgen.py --el-zone --el-zone-log logc4
+
+# Using the shell script
+./run-stillgen-sh.sh --el-zone --el-zone-log logc4
+```
+
+**EL Zone Output:**
+- **File format**: JPEG (high quality, 95% compression)
+- **Filename suffix**: `_exp_tool.jpg`
+- **Layout**: 4-quadrant analysis (1920x1080)
+  - Top-left: Original log image (scaled to width)
+  - Top-right: EL Zone false color exposure map
+  - Bottom-left: Professional vectorscope (YUV color analysis)
+  - Bottom-right: Luminance waveform (log monitoring)
 
 ## Configuration
 
@@ -133,10 +201,34 @@ project/
 ```
 
 ### File Naming Convention
-- Input files: `CLIPNAME-HH_MM_SS_FF.tiff`
-  - Example: `A001_C002_0123AB-01_23_45_12.tiff`
-- Output files: Generated based on metadata
-  - Example: `EP01_SC02_TK03_A_20240115_Day1_Main_DayExterior_4512.tiff`
+
+**Input files:** `CLIPNAME-HH_MM_SS_FF.tiff` (supports multiple camera types)
+- **ARRI Alexa**: `A001_C002_0123AB-01_23_45_12.tiff`
+- **RED cameras**: `U001_C013_0623VB-16_59_50_07.tiff`, `F002_C001_0624CP-16_00_01_05.tiff`
+
+**Output files:** Generated from metadata with consistent format
+- Example: `304-18-4-A_20240624_Day1_Main_DayExterior_9658.tiff`
+
+### Camera-Specific Processing
+
+**ARRI Alexa 35:**
+- Color pipeline: ARRI LogC4 → CDL → Output LUT
+- Cropping: Extraction-based from ALE (e.g., `A35_4608x3164_SPH_2.39_95`)
+- EL Zone: LogC4 log format recommended
+
+**RED R Cameras:**
+- Color pipeline: REDLog3 input LUT → CDL → Output LUT  
+- EL Zone: REDLog3 log format recommended
+
+**RED U Cameras:**
+- Sensor: 6144x3240 → 2.39:1 aspect ratio (95% crop)
+- Color pipeline: REDLog3 input LUT → CDL → Output LUT
+- Cropping: Extraction-based from ALE (e.g., `RED_6144x3240_SPH_2.39_95`)
+
+**RED F Cameras:**
+- Sensor: 5120x2700 → 2.39:1 aspect ratio (100% crop)  
+- Color pipeline: REDLog3 input LUT → CDL → Output LUT
+- Cropping: Extraction-based from ALE (e.g., `RED_5120x2700_SPH_2.39_100`)
 
 ## Performance Optimization
 

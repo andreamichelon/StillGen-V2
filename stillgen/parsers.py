@@ -1,6 +1,7 @@
 # parsers.py - File parsing utilities
 import os
 import csv
+import re
 import logging
 from typing import Dict, List, Optional
 from pathlib import Path
@@ -253,6 +254,122 @@ def get_value_fuzzy(data: Optional[Dict], *keys: List[str], default: str = '') -
                 return value if value else default
     
     return default
+
+
+def parse_extraction_info(extraction: str) -> Optional[Dict]:
+    """Parse extraction information from ALE data.
+    
+    Expected format: CAMERA_WIDTHxHEIGHT_FORMAT_ASPECT_CROP
+    Examples:
+    - A35_4608x3164_SPH_2.39_95
+    - RED_6144x3240_SPH_2.39_95  
+    - RED_5120x2700_SPH_2.39_100
+    
+    Returns:
+        Dict with keys: camera_type, original_width, original_height, 
+                       format, aspect_ratio, crop_percent
+    """
+    if not extraction:
+        return None
+    
+    try:
+        # Split the extraction string by underscores
+        parts = extraction.split('_')
+        if len(parts) < 5:
+            logger.debug(f"Invalid extraction format (not enough parts): {extraction}")
+            return None
+        
+        camera_type = parts[0]
+        resolution = parts[1]  # e.g., "4608x3164"
+        format_type = parts[2]  # e.g., "SPH"
+        aspect_ratio = float(parts[3])  # e.g., "2.39"
+        crop_percent = int(parts[4])  # e.g., "95"
+        
+        # Parse resolution
+        if 'x' not in resolution:
+            logger.debug(f"Invalid resolution format in extraction: {resolution}")
+            return None
+        
+        width_str, height_str = resolution.split('x')
+        original_width = int(width_str)
+        original_height = int(height_str)
+        
+        return {
+            'camera_type': camera_type,
+            'original_width': original_width,
+            'original_height': original_height,
+            'format': format_type,
+            'aspect_ratio': aspect_ratio,
+            'crop_percent': crop_percent
+        }
+        
+    except (ValueError, IndexError) as e:
+        logger.debug(f"Error parsing extraction '{extraction}': {e}")
+        return None
+
+
+def calculate_crop_from_extraction(extraction_info: Dict) -> Optional[Dict]:
+    """Calculate crop parameters from extraction information.
+    
+    Args:
+        extraction_info: Dict from parse_extraction_info()
+        
+    Returns:
+        Dict with keys: crop_left, crop_right, crop_top, crop_bottom
+    """
+    if not extraction_info:
+        return None
+    
+    try:
+        original_width = extraction_info['original_width']
+        original_height = extraction_info['original_height']
+        aspect_ratio = extraction_info['aspect_ratio']
+        crop_percent = extraction_info['crop_percent']
+        
+        # Calculate cropped dimensions (crop_percent% of original)
+        crop_factor = crop_percent / 100.0
+        cropped_width = int(original_width * crop_factor)
+        cropped_height = int(original_height * crop_factor)
+        
+        # Calculate target height for the given aspect ratio
+        target_height = int(cropped_width / aspect_ratio)
+        
+        # Ensure target height doesn't exceed cropped height
+        if target_height > cropped_height:
+            # Adjust width to fit the height constraint
+            target_width = int(cropped_height * aspect_ratio)
+            final_width = target_width
+            final_height = cropped_height
+        else:
+            final_width = cropped_width
+            final_height = target_height
+        
+        # Calculate crop values
+        # Horizontal crop (equal on both sides)
+        horizontal_crop_total = original_width - final_width
+        crop_left = horizontal_crop_total // 2
+        crop_right = horizontal_crop_total - crop_left
+        
+        # Vertical crop (equal on both sides)
+        vertical_crop_total = original_height - final_height
+        crop_top = vertical_crop_total // 2
+        crop_bottom = vertical_crop_total - crop_top
+        
+        logger.debug(f"Extraction crop calculation: {original_width}x{original_height} -> "
+                    f"{final_width}x{final_height} (crop: L{crop_left} R{crop_right} T{crop_top} B{crop_bottom})")
+        
+        return {
+            'crop_left': crop_left,
+            'crop_right': crop_right,
+            'crop_top': crop_top,
+            'crop_bottom': crop_bottom,
+            'final_width': final_width,
+            'final_height': final_height
+        }
+        
+    except (KeyError, ValueError, ZeroDivisionError) as e:
+        logger.error(f"Error calculating crop from extraction: {e}")
+        return None
 
 
 def validate_clip_data(clip_data: Dict[str, Dict]) -> Dict[str, List[str]]:

@@ -66,6 +66,18 @@ def parse_arguments():
                         help='Enable verbose logging')
     parser.add_argument('--config-file', help='Optional configuration file (YAML/JSON)')
     
+    # EL Zone System options
+    parser.add_argument('--el-zone', action='store_true',
+                        help='Generate EL Zone System analysis (4-quadrant layout)')
+    parser.add_argument('--el-zone-log', choices=['logc4', 'slog3', 'apple_log', 'linear'],
+                        default='logc4', help='Log format for EL Zone processing (default: logc4)')
+    parser.add_argument('--el-zone-overlay', action='store_true',
+                        help='Overlay EL Zone on the image instead of generating separate file')
+    parser.add_argument('--el-zone-overlay-size', type=int, default=400,
+                        help='Size of EL Zone overlay in pixels (default: 400)')
+    parser.add_argument('--el-zone-overlay-position', choices=['bottom_right', 'bottom_left', 'top_right', 'top_left'],
+                        default='bottom_right', help='Position of EL Zone overlay (default: bottom_right)')
+    
     return parser.parse_args()
 
 
@@ -129,6 +141,9 @@ def main():
             logger.error("Dependency check failed. Please install missing dependencies.")
             sys.exit(1)
     
+    # Log EL Zone arguments
+    logger.debug(f"Command line args: el_zone={args.el_zone}, el_zone_overlay={args.el_zone_overlay}")
+    
     # Create configuration with static paths
     config = Config(
         input_folder=args.input_folder,
@@ -143,8 +158,22 @@ def main():
         # Override with static paths
         logo_image=static_paths['logo_image'],
         tool_image=static_paths['tool_image'],
-        font_path=static_paths['font_path']
+        font_path=static_paths['font_path'],
+        # EL Zone System options
+        generate_el_zone=args.el_zone,
+        el_zone_log_format=args.el_zone_log
     )
+    
+    # Only override EL Zone overlay settings if explicitly set via command line
+    if args.el_zone_overlay:
+        config.el_zone_overlay = True
+    if args.el_zone_overlay_size != 400:  # Only override if not default
+        config.el_zone_overlay_size = args.el_zone_overlay_size
+    if args.el_zone_overlay_position != 'bottom_right':  # Only override if not default
+        config.el_zone_overlay_position = args.el_zone_overlay_position
+    
+    # Log final config values
+    logger.debug(f"Config created with: el_zone_overlay={config.el_zone_overlay}")
     
     # Load configuration file if provided
     if args.config_file:
@@ -155,6 +184,7 @@ def main():
         config.logo_image = static_paths['logo_image']
         config.tool_image = static_paths['tool_image']
         config.font_path = static_paths['font_path']
+        logger.debug(f"After loading config file: el_zone_overlay={config.el_zone_overlay}")
     
     # Load data
     logger.info("Loading ALE files...")

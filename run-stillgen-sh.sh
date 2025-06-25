@@ -9,6 +9,42 @@ NC='\033[0m' # No Color
 
 printf "${GREEN}=== StillGen Film Still Processor ===${NC}\n"
 
+# Check system dependencies
+printf "${YELLOW}Checking system dependencies...${NC}\n"
+
+# Check if Homebrew is installed
+if ! command -v brew &> /dev/null; then
+    printf "${RED}✗ Homebrew not found!${NC}\n"
+    echo "Install Homebrew first: https://brew.sh/"
+    echo '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+    exit 1
+fi
+
+# Check and install OpenImageIO
+if ! command -v oiiotool &> /dev/null; then
+    printf "${YELLOW}Installing OpenImageIO via Homebrew...${NC}\n"
+    brew install openimageio
+fi
+
+# Check and install OpenColorIO (optional but recommended)
+if ! brew list opencolorio &> /dev/null; then
+    printf "${YELLOW}Installing OpenColorIO via Homebrew...${NC}\n"
+    brew install opencolorio
+fi
+
+# Check if pipx is installed
+if ! command -v pipx &> /dev/null; then
+    printf "${YELLOW}Installing pipx via Homebrew...${NC}\n"
+    brew install pipx
+    pipx ensurepath
+fi
+
+# Install colour-science via pipx
+if ! pipx list | grep -q colour-science; then
+    printf "${YELLOW}Installing colour-science via pipx...${NC}\n"
+    pipx install colour-science --include-deps
+fi
+
 # Check if virtual environment exists
 if [ -d "venv" ]; then
     printf "${GREEN}✓ Virtual environment found${NC}\n"
@@ -18,7 +54,7 @@ if [ -d "venv" ]; then
     python -c "import tqdm" 2>/dev/null
     if [ $? -ne 0 ]; then
         printf "${YELLOW}Installing required packages...${NC}\n"
-        pip install Pillow numpy tqdm PyYAML
+        pip install -r requirements.txt
     fi
 else
     printf "${YELLOW}⚠ Virtual environment not found${NC}\n"
@@ -26,7 +62,7 @@ else
     python3 -m venv venv
     source venv/bin/activate
     echo "Installing required packages..."
-    pip install Pillow numpy tqdm PyYAML
+    pip install -r requirements.txt
 fi
 
 # Check if stillgen package exists
@@ -79,6 +115,14 @@ while [[ $# -gt 0 ]]; do
             EXTRA_ARGS="$EXTRA_ARGS --batch-size $2"
             shift 2
             ;;
+        --el-zone)
+            EXTRA_ARGS="$EXTRA_ARGS --el-zone"
+            shift
+            ;;
+        --el-zone-log)
+            EXTRA_ARGS="$EXTRA_ARGS --el-zone-log $2"
+            shift 2
+            ;;
         --help|-h)
             echo "Usage: $0 [options]"
             echo "Options:"
@@ -88,6 +132,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --verbose       Enable verbose logging"
             echo "  --workers N     Number of worker processes"
             echo "  --batch-size N  Images per batch"
+            echo "  --el-zone       Generate EL Zone System analysis (4-quadrant layout)"
+            echo "  --el-zone-log FORMAT  Log format (logc4, slog3, apple_log, linear)"
             echo "  --help          Show this help message"
             exit 0
             ;;
